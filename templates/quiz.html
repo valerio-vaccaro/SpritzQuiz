@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpritzQuiz - {{ title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem 0;
+        }
+        .main-container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .header-section {
+            background: linear-gradient(135deg, #f7931a 0%, #ff9800 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 15px;
+            margin-bottom: 2rem;
+        }
+        .question-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            background: #f8f9fa;
+        }
+        .status-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+        .status-active { background: #28a745; color: white; }
+        .status-finished { background: #6c757d; color: white; }
+        .table {
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .table thead {
+            background: #f7931a;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-section">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1><i class="bi bi-question-circle"></i> SpritzQuiz</h1>
+                    <h2>{{ title }}</h2>
+                    <p class="mb-0">Quiz ID: <code>{{ quiz_id }}</code></p>
+                    <p class="mb-0">Status: <span class="status-badge status-{{ status }}">{{ status.capitalize() }}</span></p>
+                    <p class="mb-0">Created: {{ created_at }}</p>
+                    {% if expires_at %}
+                    <p class="mb-0">
+                        <i class="bi bi-clock"></i> Expires: <strong>{{ expires_at }}</strong>
+                        {% if is_expired %}
+                        <span class="badge bg-danger ms-2">Expired</span>
+                        {% else %}
+                        <span class="badge bg-success ms-2">Active</span>
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="main-container">
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body text-center">
+                            <h3 class="card-title"><i class="bi bi-share"></i> Share This Quiz</h3>
+                            <p class="card-text">Scan the QR code with your smartphone to access this quiz:</p>
+                            <div id="qrcode" class="mb-3 d-flex justify-content-center"></div>
+                            <p class="text-muted small text-break">URL: <a href="{{ quiz_url }}" target="_blank">{{ quiz_url }}</a></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}
+                {% for category, msg in messages %}
+                  <div class="alert alert-{{ 'danger' if category == 'danger' else 'success' }} alert-dismissible fade show" role="alert">
+                    <i class="bi bi-{{ 'exclamation-triangle' if category == 'danger' else 'check-circle' }}"></i> {{ msg }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                  </div>
+                {% endfor %}
+              {% endif %}
+            {% endwith %}
+
+            {% if is_expired %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i> <strong>This quiz has expired!</strong> The expiration date was {{ expires_at }}. You can no longer answer this quiz.
+            </div>
+            {% endif %}
+
+            {% if status == 'active' and not is_expired %}
+            <div class="text-center mb-4">
+                <a href="{{ url_for('answer_quiz', quiz_id=quiz_id) }}" class="btn btn-primary btn-lg">
+                    <i class="bi bi-pencil-square"></i> Answer This Quiz
+                </a>
+            </div>
+            {% endif %}
+
+            <div class="alert alert-info mb-4">
+                <i class="bi bi-clock"></i> <strong>Current Time:</strong> {{ current_timestamp }}
+            </div>
+
+            <h3><i class="bi bi-people"></i> Participants</h3>
+            {% if participants %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Participant</th>
+                            <th>Completion Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for participant in participants %}
+                        <tr>
+                            <td><strong>{{ loop.index }}</strong></td>
+                            <td><strong>{{ get_participant_emoji(participant[0]) }} {{ participant[0] }}</strong></td>
+                            <td><i class="bi bi-clock"></i> {{ participant[1] }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">No participants yet. Be the first to answer!</p>
+            {% endif %}
+        </div>
+
+        {% if is_expired and leaderboard %}
+        <div class="main-container">
+            <h3><i class="bi bi-trophy"></i> Leaderboard</h3>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Participant</th>
+                            <th>Correct Answers</th>
+                            <th>Total Answered</th>
+                            <th>Score</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in leaderboard %}
+                        <tr>
+                            <td><strong>#{{ loop.index }}</strong></td>
+                            <td><strong>{{ get_participant_emoji(entry[0]) }} {{ entry[0] }}</strong></td>
+                            <td><span class="badge bg-success">{{ entry[1] }}</span></td>
+                            <td>{{ entry[2] }}</td>
+                            <td><strong>{{ "%.1f"|format((entry[1] / entry[2] * 100) if entry[2] > 0 else 0) }}%</strong></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+
+        <div class="text-center mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Back to Home
+            </a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Generate QR code
+        new QRCode(document.getElementById("qrcode"), {
+            text: "{{ quiz_url }}",
+            width: 200,
+            height: 200
+        });
+    </script>
+</body>
+</html>
+
