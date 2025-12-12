@@ -284,6 +284,7 @@ def quiz(quiz_id):
     
     # Get leaderboard only if quiz is closed (expired or manually stopped)
     leaderboard = []
+    question_stats_json = []
     is_closed = (status == 'finished') or is_expired
     if is_closed:
         c.execute('''SELECT a.username,
@@ -296,6 +297,27 @@ def quiz(quiz_id):
                      GROUP BY a.username
                      ORDER BY correct_count DESC, total_time ASC, last_answer_time ASC''', (quiz_id,))
         leaderboard = c.fetchall()
+        
+        # Get question statistics for chart: question_id, question_order, response_time, is_correct
+        c.execute('''SELECT q.question_id, q.question_order, q.question_text,
+                            a.response_time, a.is_correct, a.username
+                     FROM questions q
+                     LEFT JOIN answers a ON q.question_id = a.question_id AND a.quiz_id = ?
+                     WHERE q.quiz_id = ?
+                     ORDER BY q.question_order, a.timestamp''', (quiz_id, quiz_id))
+        question_stats = c.fetchall()
+        
+        # Convert to JSON-serializable format
+        for stat in question_stats:
+            if stat[3] is not None:  # response_time is not None
+                question_stats_json.append({
+                    'questionId': stat[0],
+                    'questionOrder': stat[1],
+                    'questionText': stat[2],
+                    'responseTime': float(stat[3]) if stat[3] else 0.0,
+                    'isCorrect': bool(stat[4]),
+                    'username': stat[5]
+                })
     
     conn.close()
     
@@ -315,6 +337,7 @@ def quiz(quiz_id):
                          is_closed=is_closed,
                          participants=participants,
                          leaderboard=leaderboard,
+                         question_stats_json=json.dumps(question_stats_json),
                          current_timestamp=current_timestamp,
                          quiz_url=quiz_url,
                          has_stop_pin=bool(stop_pin_hash))
