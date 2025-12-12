@@ -108,10 +108,15 @@ def init_db():
                   FOREIGN KEY (quiz_id) REFERENCES quizzes(quiz_id))''')
     c.execute('''CREATE TABLE IF NOT EXISTS answers
                  (quiz_id TEXT, username TEXT, question_id INTEGER, selected_answer INTEGER,
-                  is_correct INTEGER, timestamp DATETIME,
+                  is_correct INTEGER, timestamp DATETIME, response_time REAL,
                   PRIMARY KEY (quiz_id, username, question_id),
                   FOREIGN KEY (quiz_id) REFERENCES quizzes(quiz_id),
                   FOREIGN KEY (question_id) REFERENCES questions(question_id))''')
+    # Add response_time column if it doesn't exist (for existing databases)
+    try:
+        c.execute('ALTER TABLE answers ADD COLUMN response_time REAL')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 
@@ -277,17 +282,19 @@ def quiz(quiz_id):
                  ORDER BY completion_time ASC''', (quiz_id,))
     participants = c.fetchall()
     
-    # Get leaderboard only if quiz has expired
+    # Get leaderboard only if quiz is closed (expired or manually stopped)
     leaderboard = []
-    if is_expired:
+    is_closed = (status == 'finished') or is_expired
+    if is_closed:
         c.execute('''SELECT a.username,
                             COUNT(CASE WHEN a.is_correct = 1 THEN 1 END) as correct_count,
                             COUNT(*) as total_answered,
+                            COALESCE(SUM(a.response_time), 0) as total_time,
                             MAX(a.timestamp) as last_answer_time
                      FROM answers a
                      WHERE a.quiz_id = ?
                      GROUP BY a.username
-                     ORDER BY correct_count DESC, total_answered DESC, last_answer_time ASC''', (quiz_id,))
+                     ORDER BY correct_count DESC, total_time ASC, last_answer_time ASC''', (quiz_id,))
         leaderboard = c.fetchall()
     
     conn.close()
@@ -305,6 +312,7 @@ def quiz(quiz_id):
                          created_at=created_at,
                          expires_at=expires_at,
                          is_expired=is_expired,
+                         is_closed=is_closed,
                          participants=participants,
                          leaderboard=leaderboard,
                          current_timestamp=current_timestamp,
@@ -335,6 +343,7 @@ def answer_quiz(quiz_id):
     
     if status != 'active' or is_expired:
         flash("The quiz is not active or has expired, you cannot answer!", "danger")
+        conn.close()
         return redirect(url_for('quiz', quiz_id=quiz_id))
     
     # Get questions
@@ -348,12 +357,12 @@ def answer_quiz(quiz_id):
         if not game_pin:
             flash("Game PIN is required!", "danger")
             conn.close()
-            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
+            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions, total_questions=len(questions))
         
         if not verify_pin(game_pin, game_pin_hash):
             flash("Invalid Game PIN! Please check your PIN and try again.", "danger")
             conn.close()
-            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
+            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions, total_questions=len(questions))
         
         # Normalize name: lowercase and remove all spaces
         username = request.form['username'].strip().lower().replace(' ', '')
@@ -361,7 +370,7 @@ def answer_quiz(quiz_id):
         if not username:
             flash("Username is required!", "danger")
             conn.close()
-            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
+            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions, total_questions=len(questions))
         
         # Check if user has already answered
         c.execute('''SELECT COUNT(*) FROM answers WHERE quiz_id = ? AND username = ?''',
@@ -371,27 +380,125 @@ def answer_quiz(quiz_id):
             conn.close()
             return redirect(url_for('quiz', quiz_id=quiz_id))
         
-        # Process answers
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        for question_id, _, _, _, _, _, correct_answer, _ in questions:
-            selected = request.form.get(f'question_{question_id}')
-            if selected:
-                selected_int = int(selected)
-                is_correct = 1 if selected_int == correct_answer else 0
-                
-                c.execute('''INSERT INTO answers 
-                            (quiz_id, username, question_id, selected_answer, is_correct, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?)''',
-                          (quiz_id, username, question_id, selected_int, is_correct, timestamp))
-        
-        conn.commit()
+        # Store username and game_pin in session for the quiz session
+        # We'll use a simple approach: redirect to first question
         conn.close()
-        flash("Quiz submitted successfully!", "success")
-        return redirect(url_for('quiz', quiz_id=quiz_id))
+        return redirect(url_for('answer_question', quiz_id=quiz_id, question_index=0, username=username, game_pin=game_pin))
     
     conn.close()
-    return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
+    return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions, total_questions=len(questions))
+
+@app.route('/quiz/<quiz_id>/question/<int:question_index>', methods=['GET', 'POST'])
+def answer_question(quiz_id, question_index):
+    conn = sqlite3.connect('quizzes.db')
+    c = conn.cursor()
+    c.execute("SELECT title, status, expires_at, game_pin_hash FROM quizzes WHERE quiz_id = ?", (quiz_id,))
+    quiz_data = c.fetchone()
+    if not quiz_data:
+        abort(404)
+    
+    title, status, expires_at, game_pin_hash = quiz_data
+    
+    # Check if quiz has expired
+    is_expired = False
+    if expires_at:
+        expires_dt = datetime.strptime(expires_at, "%Y-%m-%d %H:%M:%S")
+        if datetime.now() > expires_dt:
+            is_expired = True
+            if status == 'active':
+                c.execute("UPDATE quizzes SET status = 'finished' WHERE quiz_id = ?", (quiz_id,))
+                conn.commit()
+                status = 'finished'
+    
+    if status != 'active' or is_expired:
+        flash("The quiz is not active or has expired, you cannot answer!", "danger")
+        conn.close()
+        return redirect(url_for('quiz', quiz_id=quiz_id))
+    
+    # Get questions
+    c.execute('''SELECT question_id, question_text, option1, option2, option3, option4, correct_answer, question_order
+                 FROM questions WHERE quiz_id = ? ORDER BY question_order''', (quiz_id,))
+    questions = c.fetchall()
+    
+    if question_index >= len(questions):
+        # All questions answered, redirect to quiz page
+        conn.close()
+        flash("Quiz completed successfully!", "success")
+        return redirect(url_for('quiz', quiz_id=quiz_id))
+    
+    # Get username and game_pin from query params or form
+    username = request.args.get('username') or request.form.get('username', '')
+    game_pin = request.args.get('game_pin') or request.form.get('game_pin', '')
+    
+    if not username or not game_pin:
+        flash("Session expired. Please start again.", "danger")
+        conn.close()
+        return redirect(url_for('answer_quiz', quiz_id=quiz_id))
+    
+    # Verify game PIN
+    if not verify_pin(game_pin, game_pin_hash):
+        flash("Invalid Game PIN! Please check your PIN and try again.", "danger")
+        conn.close()
+        return redirect(url_for('answer_quiz', quiz_id=quiz_id))
+    
+    # Check if user has already answered this question
+    current_question = questions[question_index]
+    question_id = current_question[0]
+    c.execute('''SELECT COUNT(*) FROM answers WHERE quiz_id = ? AND username = ? AND question_id = ?''',
+              (quiz_id, username, question_id))
+    if c.fetchone()[0] > 0:
+        # Already answered, skip to next question
+        conn.close()
+        return redirect(url_for('answer_question', quiz_id=quiz_id, question_index=question_index + 1, username=username, game_pin=game_pin))
+    
+    if request.method == 'POST':
+        # Handle answer submission
+        start_time = float(request.form.get('start_time', 0))
+        selected_answer = request.form.get('selected_answer', '').strip()
+        timeout = request.form.get('timeout', 'false') == 'true'
+        
+        # Calculate response time
+        end_time = datetime.now().timestamp()
+        response_time = end_time - start_time if start_time > 0 else None
+        
+        # If timeout (30 seconds) or no answer selected, mark as unanswered
+        if timeout or not selected_answer or response_time is None or response_time > 30:
+            response_time = None
+            selected_answer = None
+            is_correct = 0
+        else:
+            try:
+                selected_int = int(selected_answer)
+                correct_answer = current_question[6]
+                is_correct = 1 if selected_int == correct_answer else 0
+            except (ValueError, TypeError):
+                # Invalid answer format, mark as unanswered
+                response_time = None
+                selected_answer = None
+                is_correct = 0
+        
+        # Save answer
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute('''INSERT INTO answers 
+                    (quiz_id, username, question_id, selected_answer, is_correct, timestamp, response_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                  (quiz_id, username, question_id, selected_answer, is_correct, timestamp, response_time))
+        conn.commit()
+        conn.close()
+        
+        # Redirect to next question
+        return redirect(url_for('answer_question', quiz_id=quiz_id, question_index=question_index + 1, username=username, game_pin=game_pin))
+    
+    # GET request - show question
+    conn.close()
+    return render_template('question.html', 
+                         quiz_id=quiz_id,
+                         title=title,
+                         question=current_question,
+                         question_index=question_index,
+                         total_questions=len(questions),
+                         username=username,
+                         game_pin=game_pin)
 
 @app.route('/quiz/<quiz_id>/stop', methods=['POST'])
 def stop_quiz(quiz_id):

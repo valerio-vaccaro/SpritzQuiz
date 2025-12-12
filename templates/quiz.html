@@ -105,6 +105,10 @@
             <div class="alert alert-warning">
                 <i class="bi bi-exclamation-triangle"></i> <strong>This quiz has expired!</strong> The expiration date was {{ expires_at }}. You can no longer answer this quiz.
             </div>
+            {% elif status == 'finished' and not is_expired %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> <strong>This quiz has been closed!</strong> The quiz creator has stopped this quiz. You can no longer answer this quiz.
+            </div>
             {% endif %}
 
             {% if status == 'active' and not is_expired %}
@@ -151,9 +155,14 @@
             {% endif %}
         </div>
 
-        {% if is_expired and leaderboard %}
+        {% if is_closed and leaderboard %}
         <div class="main-container">
             <h3><i class="bi bi-trophy"></i> Leaderboard</h3>
+            {% if status == 'finished' and not is_expired %}
+            <div class="alert alert-success mb-3">
+                <i class="bi bi-check-circle"></i> <strong>Quiz Results:</strong> The quiz has been closed. Here are the final results!
+            </div>
+            {% endif %}
             <div class="table-responsive">
                 <table class="table table-hover">
                     <thead>
@@ -161,7 +170,7 @@
                             <th>Rank</th>
                             <th>Participant</th>
                             <th>Correct Answers</th>
-                            <th>Total Answered</th>
+                            <th>Total Time</th>
                             <th>Score</th>
                         </tr>
                     </thead>
@@ -171,7 +180,7 @@
                             <td><strong>#{{ loop.index }}</strong></td>
                             <td><strong>{{ get_participant_emoji(entry[0]) }} {{ entry[0] }}</strong></td>
                             <td><span class="badge bg-success">{{ entry[1] }}</span></td>
-                            <td>{{ entry[2] }}</td>
+                            <td><i class="bi bi-stopwatch"></i> <strong>{{ "%.1f"|format(entry[3]) }}s</strong></td>
                             <td><strong>{{ "%.1f"|format((entry[1] / entry[2] * 100) if entry[2] > 0 else 0) }}%</strong></td>
                         </tr>
                         {% endfor %}
