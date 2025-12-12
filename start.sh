@@ -35,10 +35,14 @@ fi
 # Set default domain if not already set
 export SPRITZQUIZ_DOMAIN="${SPRITZQUIZ_DOMAIN:-https://quiz.satoshispritz.it}"
 
+# Set default Onion URL if not already set
+export ONION_URL="${ONION_URL:-http://spritzquiz.onion}"
+
 # Start the Flask application
 echo "Starting SpritzQuiz..."
 echo "Application will be available at http://localhost:5005"
 echo "Domain for QR codes: $SPRITZQUIZ_DOMAIN"
+echo "Onion URL: $ONION_URL"
 echo "Press Ctrl+C to stop the server"
 echo ""
 

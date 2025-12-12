@@ -5,14 +5,18 @@ A quiz platform where users can create quizzes with multiple-choice questions an
 ## Features
 
 - **Create Quizzes**: Create quizzes with multiple questions, each having 4 answer options
-- **Participate**: Answer quizzes and compete with others
+- **PIN Protection**: Secure PIN system with two PINs:
+  - **Game PIN**: Required for participants to answer quizzes
+  - **Stop PIN**: Required to manually stop a quiz before expiration
+- **Participate**: Answer quizzes and compete with others (requires Game PIN)
 - **Participant Tracking**: View list of all participants with their completion timestamps
 - **Leaderboards**: View leaderboards based on correct answers (shown after quiz expiration)
 - **One Answer Per User**: Each user can only answer a quiz once (enforced)
 - **Username Normalization**: Usernames are automatically converted to lowercase and spaces are removed
-- **Expiration System**: Quizzes automatically expire at a specified date/time
+- **Expiration System**: Quizzes automatically expire at a specified date/time, or can be stopped manually
 - **QR Code Sharing**: Share quizzes easily via QR codes
 - **Modern UI**: Beautiful, responsive design with Bootstrap 5
+- **GitHub & Onion Links**: Footer links to GitHub repository and Onion service
 
 ## Installation
 
@@ -91,6 +95,8 @@ SpritzQuiz/
 - `status` (TEXT): Quiz status ('active' or 'finished')
 - `created_at` (DATETIME): Creation timestamp
 - `expires_at` (DATETIME): Expiration date and time
+- `game_pin_hash` (TEXT): SHA256 hash of the Game PIN (for security)
+- `stop_pin_hash` (TEXT): SHA256 hash of the Stop PIN (for security)
 
 ### Questions Table
 - `question_id` (INTEGER PRIMARY KEY): Unique identifier for the question
@@ -121,11 +127,34 @@ SpritzQuiz/
 - The system checks if a username has already answered before allowing submission
 - This is enforced at the database level with a composite primary key
 
+### PIN System
+
+- **Game PIN**: 
+  - Required when creating a quiz (minimum 4 characters)
+  - Must be shared with participants who want to answer the quiz
+  - Required to submit answers to a quiz
+  - Hashed using SHA256 before storage - never stored in plain text
+  - Visible during entry but never shown again after quiz creation
+
+- **Stop PIN**:
+  - Required when creating a quiz (minimum 4 characters)
+  - Allows quiz creator to manually stop the quiz before expiration
+  - Used via the "Stop Quiz" button on the quiz page
+  - Hashed using SHA256 before storage - never stored in plain text
+  - Visible during entry but never shown again after quiz creation
+
+**Security Best Practices**:
+- Use strong PINs (at least 8 characters recommended)
+- Share Game PIN securely with trusted participants only
+- Keep Stop PIN confidential - only the quiz creator should have it
+- Never share PINs publicly or in unsecured channels
+
 ### Expiration System
 - When creating a quiz, you must specify an expiration date and time
 - Quizzes automatically close when they expire
-- After expiration, users can no longer answer the quiz
-- Leaderboards are only shown after the quiz has expired
+- Quizzes can also be manually stopped using the Stop PIN before expiration
+- After expiration or manual stop, users can no longer answer the quiz
+- Leaderboards are only shown after the quiz has expired or been stopped
 
 ### Participant Tracking
 - The quiz page shows a list of all participants who have answered
@@ -147,11 +176,15 @@ SpritzQuiz/
 ### Environment Variables
 
 - `SPRITZQUIZ_DOMAIN`: Domain URL for QR code generation (default: `https://quiz.satoshispritz.it`)
+- `ONION_URL`: Onion service URL for the application (default: `http://spritzquiz.onion`)
 
-Example:
+Examples:
 ```bash
 export SPRITZQUIZ_DOMAIN=https://quiz.example.com
+export ONION_URL=http://your-onion-address.onion
 ```
+
+The Onion URL is displayed in the footer links section along with the GitHub repository link.
 
 ### Port Configuration
 
@@ -168,22 +201,32 @@ if __name__ == '__main__':
    - Go to "Create New Quiz"
    - Enter quiz title
    - Set expiration date/time
+   - **Enter Game PIN** (minimum 4 characters) - required for participants to answer
+   - **Enter Stop PIN** (minimum 4 characters) - required to stop quiz early
    - Add questions with 4 options each
    - Specify correct answer for each question
+   - **Save your PINs** - they will NOT be shown again after creation!
 
 2. **Share Quiz**:
    - After creation, you're redirected to the quiz page
    - Share the QR code or URL with participants
+   - **Share the Game PIN** with participants who want to answer
 
 3. **Participate**:
    - Click "Answer This Quiz" button
+   - **Enter the Game PIN** (obtained from quiz creator)
    - Enter username (will be normalized automatically)
    - Answer all questions
    - Submit answers
 
-4. **View Results**:
+4. **Stop Quiz Early** (Optional):
+   - On the quiz page, click "Stop Quiz" button
+   - Enter the Stop PIN
+   - Quiz will be immediately closed and leaderboard will be shown
+
+5. **View Results**:
    - Quiz page shows list of participants with completion times
-   - After expiration, leaderboard is displayed showing scores
+   - After expiration or manual stop, leaderboard is displayed showing scores
 
 ## Security Notes
 
@@ -192,6 +235,12 @@ if __name__ == '__main__':
 - Input validation is performed, but always validate user input on the server side.
 - Username normalization prevents duplicate entries with different casing/spacing.
 - Each user can only answer once per quiz (enforced at database level).
+- **PIN Security**:
+  - PINs are hashed using SHA256 before storage - original PINs are never stored
+  - PINs are visible during entry but never displayed after quiz creation
+  - Game PIN controls who can participate in quizzes
+  - Stop PIN controls who can manually stop quizzes
+  - Always use strong PINs and share them securely
 
 ## License
 

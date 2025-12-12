@@ -4,12 +4,15 @@ from datetime import datetime
 import uuid
 import os
 import json
+import hashlib
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
 
 # Get domain from environment variable, default to production URL
 DOMAIN = os.environ.get('SPRITZQUIZ_DOMAIN', 'https://quiz.satoshispritz.it')
+# Get Onion URL from environment variable, default to spritzquiz.onion
+ONION_URL = os.environ.get('ONION_URL', 'http://spritzquiz.onion')
 
 # List of emojis for participants (common emojis well-supported by browsers)
 PARTICIPANT_EMOJIS = [
@@ -68,15 +71,34 @@ def get_participant_emoji(name):
 
 app.jinja_env.globals['get_participant_emoji'] = get_participant_emoji
 
+# Hash PIN function
+def hash_pin(pin):
+    """Hash a PIN using SHA256"""
+    return hashlib.sha256(pin.encode()).hexdigest()
+
+def verify_pin(pin, pin_hash):
+    """Verify a PIN against its hash"""
+    return hash_pin(pin) == pin_hash
+
 # DB init
 def init_db():
     conn = sqlite3.connect('quizzes.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS quizzes
-                 (quiz_id TEXT PRIMARY KEY, title TEXT, status TEXT, created_at DATETIME, expires_at DATETIME)''')
+                 (quiz_id TEXT PRIMARY KEY, title TEXT, status TEXT, created_at DATETIME, expires_at DATETIME,
+                  game_pin_hash TEXT, stop_pin_hash TEXT)''')
     # Add expires_at column if it doesn't exist (for existing databases)
     try:
         c.execute('ALTER TABLE quizzes ADD COLUMN expires_at DATETIME')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    # Add PIN columns if they don't exist (for existing databases)
+    try:
+        c.execute('ALTER TABLE quizzes ADD COLUMN game_pin_hash TEXT')
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    try:
+        c.execute('ALTER TABLE quizzes ADD COLUMN stop_pin_hash TEXT')
     except sqlite3.OperationalError:
         pass  # Column already exists
     c.execute('''CREATE TABLE IF NOT EXISTS questions
@@ -134,7 +156,7 @@ def index():
     leaderboard = c.fetchall()
     
     conn.close()
-    return render_template('index.html', quizzes=quizzes, leaderboard=leaderboard)
+    return render_template('index.html', quizzes=quizzes, leaderboard=leaderboard, onion_url=ONION_URL)
 
 @app.route('/create', methods=['GET', 'POST'])
 def create_quiz():
@@ -162,6 +184,18 @@ def create_quiz():
                 flash("Expiration date/time must be in the future!", "danger")
                 return render_template('create.html')
             
+            # Get and validate PINs
+            game_pin = request.form.get('game_pin', '').strip()
+            stop_pin = request.form.get('stop_pin', '').strip()
+            
+            if not game_pin or len(game_pin) < 4:
+                flash("Game PIN is required and must be at least 4 characters!", "danger")
+                return render_template('create.html')
+            
+            if not stop_pin or len(stop_pin) < 4:
+                flash("Stop PIN is required and must be at least 4 characters!", "danger")
+                return render_template('create.html')
+            
             quiz_id = str(uuid.uuid4())[:8]
             questions_data = json.loads(request.form['questions_json'])
             
@@ -172,8 +206,10 @@ def create_quiz():
             conn = sqlite3.connect('quizzes.db')
             c = conn.cursor()
             created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            c.execute("INSERT INTO quizzes (quiz_id, title, status, created_at, expires_at) VALUES (?, ?, 'active', ?, ?)",
-                      (quiz_id, title, created_at, expires_at))
+            game_pin_hash = hash_pin(game_pin)
+            stop_pin_hash = hash_pin(stop_pin)
+            c.execute("INSERT INTO quizzes (quiz_id, title, status, created_at, expires_at, game_pin_hash, stop_pin_hash) VALUES (?, ?, 'active', ?, ?, ?, ?)",
+                      (quiz_id, title, created_at, expires_at, game_pin_hash, stop_pin_hash))
             
             for idx, q in enumerate(questions_data):
                 question_text = q.get('question', '').strip()
@@ -202,7 +238,7 @@ def create_quiz():
             
             conn.commit()
             conn.close()
-            flash("Quiz created successfully!", "success")
+            flash("Quiz created successfully! Remember your PINs - Game PIN is needed for participants, Stop PIN is needed to stop the quiz early.", "success")
             return redirect(url_for('quiz', quiz_id=quiz_id))
         except Exception as e:
             flash(f"Error creating quiz: {str(e)}", "danger")
@@ -213,12 +249,12 @@ def create_quiz():
 def quiz(quiz_id):
     conn = sqlite3.connect('quizzes.db')
     c = conn.cursor()
-    c.execute("SELECT title, status, created_at, expires_at FROM quizzes WHERE quiz_id = ?", (quiz_id,))
+    c.execute("SELECT title, status, created_at, expires_at, stop_pin_hash FROM quizzes WHERE quiz_id = ?", (quiz_id,))
     quiz_data = c.fetchone()
     if not quiz_data:
         abort(404)
     
-    title, status, created_at, expires_at = quiz_data
+    title, status, created_at, expires_at, stop_pin_hash = quiz_data
     
     # Check if quiz has expired
     is_expired = False
@@ -272,18 +308,19 @@ def quiz(quiz_id):
                          participants=participants,
                          leaderboard=leaderboard,
                          current_timestamp=current_timestamp,
-                         quiz_url=quiz_url)
+                         quiz_url=quiz_url,
+                         has_stop_pin=bool(stop_pin_hash))
 
 @app.route('/quiz/<quiz_id>/answer', methods=['GET', 'POST'])
 def answer_quiz(quiz_id):
     conn = sqlite3.connect('quizzes.db')
     c = conn.cursor()
-    c.execute("SELECT title, status, expires_at FROM quizzes WHERE quiz_id = ?", (quiz_id,))
+    c.execute("SELECT title, status, expires_at, game_pin_hash FROM quizzes WHERE quiz_id = ?", (quiz_id,))
     quiz_data = c.fetchone()
     if not quiz_data:
         abort(404)
     
-    title, status, expires_at = quiz_data
+    title, status, expires_at, game_pin_hash = quiz_data
     
     # Check if quiz has expired
     is_expired = False
@@ -306,6 +343,18 @@ def answer_quiz(quiz_id):
     questions = c.fetchall()
     
     if request.method == 'POST':
+        # Get and verify game PIN
+        game_pin = request.form.get('game_pin', '').strip()
+        if not game_pin:
+            flash("Game PIN is required!", "danger")
+            conn.close()
+            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
+        
+        if not verify_pin(game_pin, game_pin_hash):
+            flash("Invalid Game PIN! Please check your PIN and try again.", "danger")
+            conn.close()
+            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
+        
         # Normalize name: lowercase and remove all spaces
         username = request.form['username'].strip().lower().replace(' ', '')
         
@@ -341,58 +390,42 @@ def answer_quiz(quiz_id):
         flash("Quiz submitted successfully!", "success")
         return redirect(url_for('quiz', quiz_id=quiz_id))
     
-    # Get questions
-    c.execute('''SELECT question_id, question_text, option1, option2, option3, option4, correct_answer, question_order
-                 FROM questions WHERE quiz_id = ? ORDER BY question_order''', (quiz_id,))
-    questions = c.fetchall()
-    
-    if request.method == 'POST':
-        # Normalize name: lowercase and remove all spaces
-        username = request.form['username'].strip().lower().replace(' ', '')
-        
-        if not username:
-            flash("Username is required!", "danger")
-            conn.close()
-            return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
-        
-        # Check if user has already answered
-        c.execute('''SELECT COUNT(*) FROM answers WHERE quiz_id = ? AND username = ?''',
-                  (quiz_id, username))
-        if c.fetchone()[0] > 0:
-            flash("You have already answered this quiz! Each user can only answer once.", "danger")
-            conn.close()
-            return redirect(url_for('quiz', quiz_id=quiz_id, username=username))
-        
-        # Process answers
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        for question_id, _, _, _, _, _, correct_answer, _ in questions:
-            selected = request.form.get(f'question_{question_id}')
-            if selected:
-                selected_int = int(selected)
-                is_correct = 1 if selected_int == correct_answer else 0
-                
-                c.execute('''INSERT INTO answers 
-                            (quiz_id, username, question_id, selected_answer, is_correct, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?)''',
-                          (quiz_id, username, question_id, selected_int, is_correct, timestamp))
-        
-        conn.commit()
-        conn.close()
-        flash("Quiz submitted successfully!", "success")
-        return redirect(url_for('quiz', quiz_id=quiz_id))
-    
     conn.close()
     return render_template('answer.html', quiz_id=quiz_id, title=title, questions=questions)
 
-@app.route('/quiz/<quiz_id>/finish', methods=['POST'])
-def finish_quiz(quiz_id):
+@app.route('/quiz/<quiz_id>/stop', methods=['POST'])
+def stop_quiz(quiz_id):
     conn = sqlite3.connect('quizzes.db')
     c = conn.cursor()
+    c.execute("SELECT status, stop_pin_hash FROM quizzes WHERE quiz_id = ?", (quiz_id,))
+    quiz_data = c.fetchone()
+    if not quiz_data:
+        abort(404)
+    
+    status, stop_pin_hash = quiz_data
+    
+    if status == 'finished':
+        flash("Quiz is already finished!", "info")
+        conn.close()
+        return redirect(url_for('quiz', quiz_id=quiz_id))
+    
+    # Get and verify stop PIN
+    stop_pin = request.form.get('stop_pin', '').strip()
+    if not stop_pin:
+        flash("Stop PIN is required!", "danger")
+        conn.close()
+        return redirect(url_for('quiz', quiz_id=quiz_id))
+    
+    if not verify_pin(stop_pin, stop_pin_hash):
+        flash("Invalid Stop PIN! Please check your PIN and try again.", "danger")
+        conn.close()
+        return redirect(url_for('quiz', quiz_id=quiz_id))
+    
+    # Stop the quiz
     c.execute("UPDATE quizzes SET status = 'finished' WHERE quiz_id = ?", (quiz_id,))
     conn.commit()
     conn.close()
-    flash("Quiz finished!", "success")
+    flash("Quiz stopped successfully!", "success")
     return redirect(url_for('quiz', quiz_id=quiz_id))
 
 if __name__ == '__main__':

@@ -112,6 +112,11 @@
                 <a href="{{ url_for('answer_quiz', quiz_id=quiz_id) }}" class="btn btn-primary btn-lg">
                     <i class="bi bi-pencil-square"></i> Answer This Quiz
                 </a>
+                {% if has_stop_pin %}
+                <button type="button" class="btn btn-danger btn-lg ms-2" data-bs-toggle="modal" data-bs-target="#stopQuizModal">
+                    <i class="bi bi-stop-circle"></i> Stop Quiz
+                </button>
+                {% endif %}
             </div>
             {% endif %}
 
@@ -176,6 +181,45 @@
         </div>
         {% endif %}
 
+
+        <!-- Stop Quiz Modal -->
+        {% if has_stop_pin %}
+        <div class="modal fade" id="stopQuizModal" tabindex="-1" aria-labelledby="stopQuizModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="stopQuizModalLabel">
+                            <i class="bi bi-stop-circle"></i> Stop Quiz
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="POST" action="{{ url_for('stop_quiz', quiz_id=quiz_id) }}">
+                        <div class="modal-body">
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle"></i> <strong>Warning:</strong> This will immediately stop the quiz and prevent any further answers. This action cannot be undone.
+                            </div>
+                            <div class="mb-3">
+                                <label for="stop_pin" class="form-label">
+                                    <i class="bi bi-lock"></i> Stop PIN
+                                </label>
+                                <input type="text" class="form-control" id="stop_pin" name="stop_pin" required
+                                       placeholder="Enter the Stop PIN">
+                                <small class="form-text text-muted">
+                                    The Stop PIN was set when the quiz was created.
+                                </small>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-danger">
+                                <i class="bi bi-stop-circle"></i> Stop Quiz
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <div class="text-center mt-4">
             <a href="{{ url_for('index') }}" class="btn btn-secondary">

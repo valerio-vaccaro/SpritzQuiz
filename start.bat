@@ -28,7 +28,13 @@ if %errorlevel% neq 0 (
 echo Setting domain for QR codes...
 set SPRITZQUIZ_DOMAIN=https://quiz.satoshispritz.it
 
+REM Set default Onion URL if not already set
+if not defined ONION_URL (
+    set ONION_URL=http://spritzquiz.onion
+)
+
 echo Starting SpritzQuiz Flask application...
+echo Onion URL: %ONION_URL%
 set FLASK_APP=app.py
 set FLASK_DEBUG=True
 set FLASK_RUN_PORT=5005
