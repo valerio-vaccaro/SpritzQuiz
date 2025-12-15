@@ -318,6 +318,34 @@ def quiz(quiz_id):
                     'isCorrect': bool(stat[4]),
                     'username': stat[5]
                 })
+        
+        # Get all questions for display
+        c.execute('''SELECT question_id, question_text, option1, option2, option3, option4, correct_answer, question_order
+                     FROM questions WHERE quiz_id = ? ORDER BY question_order''', (quiz_id,))
+        questions = c.fetchall()
+        
+        # Get answer counts and average response times for each question and option
+        answer_counts = {}
+        avg_response_times = {}
+        for question in questions:
+            question_id = question[0]
+            answer_counts[question_id] = {1: 0, 2: 0, 3: 0, 4: 0}
+            avg_response_times[question_id] = {1: None, 2: None, 3: None, 4: None}
+            
+            # Count answers and calculate average response time for each option (1-4)
+            for option in [1, 2, 3, 4]:
+                c.execute('''SELECT COUNT(*), AVG(response_time) FROM answers 
+                           WHERE quiz_id = ? AND question_id = ? AND selected_answer = ? AND response_time IS NOT NULL''',
+                         (quiz_id, question_id, option))
+                result = c.fetchone()
+                count = result[0]
+                avg_time = result[1]
+                answer_counts[question_id][option] = count
+                avg_response_times[question_id][option] = float(avg_time) if avg_time is not None else None
+    else:
+        questions = []
+        answer_counts = {}
+        avg_response_times = {}
     
     conn.close()
     
@@ -338,6 +366,9 @@ def quiz(quiz_id):
                          participants=participants,
                          leaderboard=leaderboard,
                          question_stats_json=json.dumps(question_stats_json),
+                         questions=questions,
+                         answer_counts=answer_counts,
+                         avg_response_times=avg_response_times,
                          current_timestamp=current_timestamp,
                          quiz_url=quiz_url,
                          has_stop_pin=bool(stop_pin_hash))

@@ -197,6 +197,106 @@
             <canvas id="questionChart" style="max-height: 400px;"></canvas>
         </div>
         {% endif %}
+        
+        {% if is_closed and questions %}
+        <div class="main-container">
+            <h3><i class="bi bi-list-ul"></i> Questions</h3>
+            <p class="text-muted">Here are all the questions from this quiz with the correct answers highlighted.</p>
+            {% for question in questions %}
+            <div class="question-card mb-3">
+                <h5 class="mb-3">
+                    <strong>Question {{ question[7] }}:</strong> {{ question[1] }}
+                </h5>
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th style="width: 45%;">Option</th>
+                                <th style="width: 15%;" class="text-center">Participants</th>
+                                <th style="width: 20%;" class="text-center">Avg Time</th>
+                                <th style="width: 20%;" class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="{% if question[6] == 1 %}table-success{% endif %}">
+                                <td><strong>Option 1:</strong> {{ question[2] }}</td>
+                                <td class="text-center"><span class="badge bg-primary" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-people"></i> {{ answer_counts[question[0]][1] }}</span></td>
+                                <td class="text-center">
+                                    {% if avg_response_times[question[0]][1] is not none %}
+                                    <span class="badge bg-warning text-dark" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-stopwatch"></i> {{ "%.1f"|format(avg_response_times[question[0]][1]) }}s</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if question[6] == 1 %}
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Correct</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr class="{% if question[6] == 2 %}table-success{% endif %}">
+                                <td><strong>Option 2:</strong> {{ question[3] }}</td>
+                                <td class="text-center"><span class="badge bg-primary" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-people"></i> {{ answer_counts[question[0]][2] }}</span></td>
+                                <td class="text-center">
+                                    {% if avg_response_times[question[0]][2] is not none %}
+                                    <span class="badge bg-warning text-dark" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-stopwatch"></i> {{ "%.1f"|format(avg_response_times[question[0]][2]) }}s</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if question[6] == 2 %}
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Correct</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr class="{% if question[6] == 3 %}table-success{% endif %}">
+                                <td><strong>Option 3:</strong> {{ question[4] }}</td>
+                                <td class="text-center"><span class="badge bg-primary" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-people"></i> {{ answer_counts[question[0]][3] }}</span></td>
+                                <td class="text-center">
+                                    {% if avg_response_times[question[0]][3] is not none %}
+                                    <span class="badge bg-warning text-dark" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-stopwatch"></i> {{ "%.1f"|format(avg_response_times[question[0]][3]) }}s</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if question[6] == 3 %}
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Correct</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr class="{% if question[6] == 4 %}table-success{% endif %}">
+                                <td><strong>Option 4:</strong> {{ question[5] }}</td>
+                                <td class="text-center"><span class="badge bg-primary" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-people"></i> {{ answer_counts[question[0]][4] }}</span></td>
+                                <td class="text-center">
+                                    {% if avg_response_times[question[0]][4] is not none %}
+                                    <span class="badge bg-warning text-dark" style="font-size: 1.1em; font-weight: bold; padding: 0.5em 0.75em;"><i class="bi bi-stopwatch"></i> {{ "%.1f"|format(avg_response_times[question[0]][4]) }}s</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if question[6] == 4 %}
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Correct</span>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
 
 
         <!-- Stop Quiz Modal -->
